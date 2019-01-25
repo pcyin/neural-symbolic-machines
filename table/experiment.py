@@ -378,6 +378,40 @@ def collect_traj_for_program(env, program):
   return traj
 
 
+def to_human_readable_program(program, env):
+  """better version of `unpack_program`"""
+
+  env = env.clone()
+  env.use_cache = False
+  ob = env.start_ob
+
+  for tk in program:
+    valid_actions = list(ob[0].valid_indices)
+    action_id = env.de_vocab.lookup(tk)
+    valid_action_id = valid_actions.index(action_id)
+    ob, _, _, _ = env.step(valid_action_id)
+
+  readable_program = []
+  first_intermediate_var_id = len([v for v, entry in env.interpreter.namespace.iteritems() if v.startswith('v') and entry['is_constant']])
+  for tk in program:
+    if tk.startswith('v'):
+      mem_entry = env.interpreter.namespace[tk]
+      if mem_entry['is_constant']:
+        if isinstance(mem_entry['value'], list):
+          token = mem_entry['value'][0]
+        else:
+          token = mem_entry['value']
+      else:
+        intermediate_var_relative_id = int(tk[1:]) - first_intermediate_var_id
+        token = 'v{}'.format(intermediate_var_relative_id)
+    else:
+      token = tk
+
+    readable_program.append(token)
+
+  return readable_program
+
+
 def unpack_program(program_str, env):
   ns = env.interpreter.namespace
   processed_program = []
@@ -1098,11 +1132,15 @@ class Evaluator(multiprocessing.Process):
         for sample in dev_samples_in_beam:
           name = sample.traj.env_name
           program = agent_factory.traj_to_program(sample.traj, envs[0].de_vocab)
+          human_readable_program = to_human_readable_program(program, env_dict[sample.traj.env_name])
           answer = sample.traj.answer
+          is_correct = sample.traj.rewards[-1] == 1.
           if name in dev_programs_in_beam_dict:
-            dev_programs_in_beam_dict[name].append((program, answer, sample.prob))
+            # dev_programs_in_beam_dict[name].append((program, answer, sample.prob))
+            dev_programs_in_beam_dict[name].append((human_readable_program, answer, sample.prob, is_correct))
           else:
-            dev_programs_in_beam_dict[name] = [(program, answer, sample.prob)]
+            # dev_programs_in_beam_dict[name] = [(program, answer, sample.prob)]
+            dev_programs_in_beam_dict[name] = [(human_readable_program, answer, sample.prob, is_correct)]
 
         t3 = time.time()
         with open(
