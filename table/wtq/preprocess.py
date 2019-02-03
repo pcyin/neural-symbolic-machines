@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import print_function
+
 import argparse
 import csv
 import nltk
@@ -78,11 +80,20 @@ def normalize_date_nervalue(val_string):
         string = val_string + '-XX'
     else:
         string = val_string
-    val = evaluator.to_value(string)
-    if isinstance(val, evaluator.DateValue):
-        return val.normalized
-    else:
-        return None
+
+    val = evaluator.DateValue.parse(string)
+    if val is not None:
+        date_val = evaluator.DateValue(val[0], val[1], val[2], string)
+        return date_val.normalized
+
+    return None
+
+    # val = evaluator.to_value(string)
+    # if isinstance(val, (evaluator.DateValue, evaluator.NumberValue)):
+    # if isinstance(val, evaluator.DateValue):
+    #     return val.normalized
+    # else:
+    #     return None
 
 
 # Normalize the number value from corenlp annotation.
@@ -236,6 +247,7 @@ def tokens_contain(string_1, string_2):
   tks_2 = nltk.tokenize.word_tokenize(string_2)
   return set(tks_2).issubset(set(tks_1))
 
+
 # preprocess the questions.
 def string_in_table_tk(string, kg):
   for k, node in kg['kg'].iteritems():
@@ -245,7 +257,8 @@ def string_in_table_tk(string, kg):
         return True
       else:
         return False
-    
+
+
 # preprocess the questions.
 def string_in_table_str(string, kg):
     for k, node in kg['kg'].iteritems():
@@ -254,6 +267,7 @@ def string_in_table_str(string, kg):
                 return True
     else:
         return False
+
 
 def string_in_table(string, kg):
   if FLAGS.use_tokens_contain:
@@ -297,6 +311,7 @@ def prop_in_question_score(prop, example, stop_words, binary=True):
     return n_in_question
 
 
+# noinspection PyTypeChecker
 def collect_examples_from_df(df, kg_dict, stop_words):
     examples = []
     for index, row in df.iterrows():
@@ -304,78 +319,176 @@ def collect_examples_from_df(df, kg_dict, stop_words):
         match = re.match(r'csv/(?P<first>\d+)-csv/(?P<second>\d+).csv', row['context'])
         context = 't_{}_{}'.format(*match.groups())
         tks = row['tokens'].split('|')
+        lemma_tokens = row['lemmaTokens'].split('|')
         pos_tags = row['posTags'].split('|')
         vals = row['nerValues'].split('|')
         tags = row['nerTags'].split('|')
-        e = dict(id=row['id'], question=row['utterance'],tokens=tks,
-                 context=context, pos_tags=pos_tags)
+        e = dict(id=row['id'],
+                 question=row['utterance'],
+                 entities=[],
+                 tokens=tks,
+                 context=context,
+                 pos_tags=pos_tags)
         answer = (row['targetValue'], row['targetCanon'])
         e['answer'] = answer
-        e['entities'] = []
         # entities are normalized tokens
         e['processed_tokens'] = tks[:]
         e['in_table'] = [0] * len(tks)
-        for i, (tk, tag, val) in enumerate(zip(tks, tags, vals)):
-            kg = kg_dict[context]
-            if tk not in stop_words:
-                if string_in_table(normalize(tk), kg):
-                    e['entities'].append(
-                        dict(value=[normalize(tk)], token_start=i, token_end=i+1,
-                             type='string_list'))
-                    e['in_table'][i] = 1
-            if tag == 'DATE':
-                nerVal = normalize_date_nervalue(val)
-                if nerVal is not None:
-                    e['entities'].append(
-                        dict(value=[nerVal], token_start=i, token_end=i+1,
-                             type='datetime_list'))
-                    if date_in_table(nerVal, kg):
-                        e['in_table'][i] = 1
-                        e['processed_tokens'][i] = '<{}>'.format(tag)
-                    #e['processed_tokens'][i] += ' <DATE>'
-            elif tag == 'NUMBER':
-                nerVal = normalize_number_nervalue(val)
-                if nerVal is not None:
-                    e['entities'].append(
-                        dict(value=[nerVal], token_start=i, token_end=i+1,
-                             type='num_list'))
-                    if num_in_table(nerVal, kg):
-                        e['in_table'][i] = 1
-                        e['processed_tokens'][i] = '<{}>'.format(tag)
-                    #e['processed_tokens'][i] += ' <NUMBER>'
-            elif tag != 'O':
-                e['processed_tokens'][i] = '<{}>'.format(tag)
+
+        token_num = len(tks)
+        kg = kg_dict[context]
+
+        for i in range(token_num):
+            token = tks[i]
+            lemma_token = lemma_tokens[i]
+            normalized_lemma = normalize(lemma_token)
+            normalized_token = normalize(token)
+
+            if token not in stop_words:
+                if string_in_table(normalized_token, kg):
+                    token_in_table = normalized_token
+                elif string_in_table(normalized_lemma, kg):
+                    token_in_table = normalized_lemma
+                else:
+                    token_in_table = None
+
+                if token_in_table is not None:
+                    e['entities'].append(dict(value=[token_in_table],
+                                              token_start=i,
+                                              token_end=i+1,
+                                              type='string_list'))
+
+        i = 0
+        while i < token_num:
+            token = tks[i]
+            ner_tag = tags[i]
+            ner_value = vals[i]
+
+            normalized_token = normalize(token)
+
+            if ner_tag == 'DATE':
+                date_value = normalize_date_nervalue(ner_value)
+
+                if date_value is not None:
+                    # get the end of the entity span
+                    end_pos = i
+                    while end_pos < token_num and tags[end_pos] == ner_tag:
+                        end_pos += 1
+
+                    e['entities'].append(dict(value=[date_value],
+                                              token_start=i,
+                                              token_end=end_pos,
+                                              type='datetime_list'))
+
+                    if date_in_table(ner_value, kg):
+                        e['in_table'][i:end_pos] = 1
+                        e['processed_tokens'][i:end_pos] = '<{}>'.format(ner_tag)
+
+                    i = end_pos
+                else:
+                    i += 1
+
+            elif ner_tag == 'NUMBER' or ner_tag == 'PERCENT':
+                num_value = normalize_number_nervalue(ner_value)
+
+                if num_value is not None:
+                    # get the end of the entity span
+                    end_pos = i
+                    while end_pos < token_num and tags[end_pos] == ner_tag:
+                        end_pos += 1
+
+                    e['entities'].append(dict(value=[num_value],
+                                              token_start=i,
+                                              token_end=end_pos,
+                                              type='num_list'))
+
+                    if num_in_table(num_value, kg):
+                        e['in_table'][i:end_pos] = 1
+                        e['processed_tokens'][i:end_pos] = '<{}>'.format(ner_tag)
+
+                    i = end_pos
+                else:
+                    i += 1
+
+            elif ner_tag != 'O':
+                e['processed_tokens'][i] = '<{}>'.format(ner_tag)
+                i += 1
+            else:
+                i += 1
+
+        # for i, (tk, tag, val) in enumerate(zip(tks, tags, vals)):
+        #     kg = kg_dict[context]
+        #     if tk not in stop_words:
+        #         if string_in_table(normalize(tk), kg):
+        #             e['entities'].append(
+        #                 dict(value=[normalize(tk)], token_start=i, token_end=i+1,
+        #                      type='string_list'))
+        #             e['in_table'][i] = 1
+        #     if tag == 'DATE':
+        #         nerVal = normalize_date_nervalue(val)
+        #         if nerVal is not None:
+        #             e['entities'].append(
+        #                 dict(value=[nerVal], token_start=i, token_end=i+1,
+        #                      type='datetime_list'))
+        #             if date_in_table(nerVal, kg):
+        #                 e['in_table'][i] = 1
+        #                 e['processed_tokens'][i] = '<{}>'.format(tag)
+        #             #e['processed_tokens'][i] += ' <DATE>'
+        #     elif tag == 'NUMBER':
+        #         nerVal = normalize_number_nervalue(val)
+        #         if nerVal is not None:
+        #             e['entities'].append(
+        #                 dict(value=[nerVal], token_start=i, token_end=i+1,
+        #                      type='num_list'))
+        #             if num_in_table(nerVal, kg):
+        #                 e['in_table'][i] = 1
+        #                 e['processed_tokens'][i] = '<{}>'.format(tag)
+        #             #e['processed_tokens'][i] += ' <NUMBER>'
+        #     elif tag == 'PERCENT':
+        #         nerVal = normalize_number_nervalue(val)
+        #         if nerVal is not None:
+        #             e['entities'].append(
+        #                 dict(value=[nerVal], token_start=i, token_end=i + 1,
+        #                      type='num_list'))
+        #             if num_in_table(nerVal, kg):
+        #                 e['in_table'][i] = 1
+        #                 e['processed_tokens'][i] = '<{}>'.format(tag)
+        #     elif tag != 'O':
+        #         e['processed_tokens'][i] = '<{}>'.format(tag)
+
         e['features'] = [[it] for it in e['in_table']]
+
         e['prop_features'] = dict(
-          [(prop, [prop_in_question_score(
-              prop, e, stop_words,
-              binary=not FLAGS.use_prop_match_count_feature)])
-           for prop in kg['props']])
+            [(prop, [prop_in_question_score(
+                prop, e, stop_words,
+                binary=not FLAGS.use_prop_match_count_feature)])
+             for prop in kg['props']])
+
         examples.append(e)        
                 
     avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
                  len(examples))
 
-    print 'Average number of entities is {}'.format(avg_n_ent)
+    print('Average number of entities is {}'.format(avg_n_ent))
     if FLAGS.expand_entities:
-      expand_entities(examples, kg_dict)
-      avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
-                   len(examples))
-      print 'After expanding, average number of entities is {}'.format(avg_n_ent)
+        expand_entities(examples, kg_dict)
+        avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
+                     len(examples))
+        print('After expanding, average number of entities is {}'.format(avg_n_ent))
 
     for e in examples:
-      e['tmp_tokens'] = e['tokens'][:]
+        e['tmp_tokens'] = e['tokens'][:]
 
     if FLAGS.anonymize_datetime_and_number_entities:
         for e in examples:
             for ent in e['entities']:
                 if ent['type'] == 'datetime_list':
-                  for t in xrange(ent['token_start'], ent['token_end']):
-                    e['tmp_tokens'][t] = '<DECODE>'
+                    for t in range(ent['token_start'], ent['token_end']):
+                        e['tmp_tokens'][t] = '<DECODE>'
                 elif ent['type'] == 'num_list':
-                  for t in xrange(ent['token_start'], ent['token_end']):
-                    e['tmp_tokens'][t] = '<START>'
-      
+                    for t in range(ent['token_start'], ent['token_end']):
+                        e['tmp_tokens'][t] = '<START>'
+
     # if FLAGS.merge_entities:
     #   merge_entities(examples, kg_dict)
     #   avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
@@ -383,15 +496,15 @@ def collect_examples_from_df(df, kg_dict, stop_words):
     #   print 'After merging, average number of entities is {}'.format(avg_n_ent)
 
     if FLAGS.process_conjunction:
-      n_conjunction = process_conjunction(examples, 'or')
-      tf.logging.info('{} conjunctions processed.'.format(n_conjunction))
-      avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
-                   len(examples))
-      print 'After processing conjunction, average number of entities is {}'.format(
-        avg_n_ent)
+        n_conjunction = process_conjunction(examples, 'or')
+        tf.logging.info('{} conjunctions processed.'.format(n_conjunction))
+        avg_n_ent = (sum([len(e['entities']) for e in examples]) * 1.0 /
+                     len(examples))
+        print('After processing conjunction, average number of entities is {}'.format(
+            avg_n_ent))
 
     for e in examples:
-      e['tokens'] = e['tmp_tokens']
+        e['tokens'] = e['tmp_tokens']
       
     return examples
 
@@ -405,7 +518,7 @@ def dump_examples(examples, fn):
             f.write(json.dumps(e))
             f.write('\n')
     t2 = time.time()
-    print '{} sec used dumping {} examples.'.format(t2 - t1, len(examples))
+    print('{} sec used dumping {} examples.'.format(t2 - t1, len(examples)))
 
 
 def to_unicode(tk, encoding='utf-8'):
@@ -471,6 +584,7 @@ def merge_entities(examples, table_dict):
         for ent in e['entities']:
             for t in xrange(ent['token_start'], ent['token_end']):
                 e['features'][t] = [1]
+
 
 def expand_entities(examples, table_dict):
     for e in examples:
@@ -577,7 +691,7 @@ def main(unused_argv):
     table_dict = {}
     folders = []
     t1 = time.time()
-    for d in subdirs:
+    for d in filter(lambda x: x.endswith('tagged'), subdirs):
         for fn in os.listdir(os.path.join(data_folder, d)):
             full_path = os.path.join(data_folder, d, fn)
             m = re.match(r'.*/(?P<first>[0-9]*)-tagged/(?P<second>[0-9]*)\.tagged', full_path)
@@ -591,10 +705,10 @@ def main(unused_argv):
             table_dict[table_name] = kg
     t2 = time.time()
     print('{} sec used processing the tables.'.format(t2 - t1))
-    print 'total number of number cells: {}'.format(n_total_num)
-    print 'total number of filtered number cells: {}'.format(n_filtered_num)
-    print 'filtered ration: {}'.format(n_filtered_num * 1.0 / n_total_num)
-    print 'date and number ratio: {}'.format(n_date_and_num * 1.0 / n_total_num)
+    print('total number of number cells: {}'.format(n_total_num))
+    print('total number of filtered number cells: {}'.format(n_filtered_num))
+    print('filtered ration: {}'.format(n_filtered_num * 1.0 / n_total_num))
+    print('date and number ratio: {}'.format(n_date_and_num * 1.0 / n_total_num))
 
     # Save the preprocessed test table. 
     with open(test_table_file, 'w') as f:
@@ -605,11 +719,11 @@ def main(unused_argv):
     with open(table_file, 'w') as f:
         for i, (k, v) in enumerate(table_dict.iteritems()):
             if i % 1000 == 0:
-                print 'number {}'.format(i)
+                print('number {}'.format(i))
             f.write(json.dumps(v))
             f.write('\n')
     t2 = time.time()
-    print '{} sec used dumping tables'.format(t2 - t1)
+    print('{} sec used dumping tables'.format(t2 - t1))
 
     df = create_df_from_wtq_questions(train_tagged)
 
@@ -621,11 +735,11 @@ def main(unused_argv):
     examples = collect_examples_from_df(
         df, table_dict, stop_words)
     t2 = time.time()
-    print '{} sec used collecting train examples.'.format(t2 - t1)
+    print('{} sec used collecting train examples.'.format(t2 - t1))
     
     dump_examples(examples, train_file)
 
-    for split_id in xrange(1, 6):
+    for split_id in range(1, 6):
         processed_input_dir = os.path.join(
             FLAGS.processed_input_dir, 'data_split_{}'.format(split_id))
         if not tf.gfile.Exists(processed_input_dir):
@@ -682,7 +796,7 @@ def main(unused_argv):
     test_examples = collect_examples_from_df(
         test_df, table_dict, stop_words)
     t2 = time.time()
-    print '{} sec used collecting test examples.'.format(t2 - t1)
+    print('{} sec used collecting test examples.'.format(t2 - t1))
     
     test_split_jsonl = os.path.join(FLAGS.processed_input_dir, 'test_split.jsonl')
     dump_examples(test_examples, test_split_jsonl)
@@ -715,7 +829,7 @@ def main(unused_argv):
           FLAGS.processed_input_dir, "en_vocab_min_count_{}.json".format(i))
         with open(vocab_file, 'w') as f:
           json.dump(en_vocab.vocab, f, sort_keys=True, indent=2)
-        print 'min_tk_count: {}, vocab size: {}'.format(i, len(en_vocab.vocab))    
+        print('min_tk_count: {}, vocab size: {}'.format(i, len(en_vocab.vocab)))
 
 
 # Copied from utils to avoid relative import.
