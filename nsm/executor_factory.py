@@ -38,6 +38,113 @@ def get_simple_type_hierarchy():
   return type_hierarchy
 
 
+class DateTime(object):
+  def __init__(self, year=-1, month=-1, day=-1):
+    assert isinstance(year, int)
+    assert isinstance(month, int) and (month == -1 or 1 <= month <= 12)
+    assert isinstance(day, int) and (day == -1 or 1 <= day <= 31)
+    assert not (year == month == day == -1)
+
+    self.year = year
+    self.month = month
+    self.day = day
+
+    self._day_repr = 365 * (0 if year == -1 else year) + 30 * (0 if month == -1 else month) + (0 if day == -1 else day)
+
+    self._hash = hash((self.year, self.month, self.day))
+
+  @property
+  def is_month_only(self):
+      return self.year == -1 and self.month != -1 and self.day == -1
+
+  def __hash__(self):
+    return self._hash
+
+  @property
+  def is_year_only(self):
+    return self.year != -1 and self.month == self.day == -1
+
+  def __eq__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month == other.month
+    elif other.is_year_only:
+      return self.year == other.year
+
+    return self._day_repr == other._day_repr
+
+  def __ne__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month != other.month
+    elif other.is_year_only:
+      return self.year != other.year
+
+    return self._day_repr != other._day_repr
+
+  def __gt__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month > other.month
+    elif other.is_year_only:
+      return self.year > other.year
+
+    return self._day_repr > other._day_repr
+
+  def __ge__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month >= other.month
+    elif other.is_year_only:
+      return self.year >= other.year
+
+    return self._day_repr >= other._day_repr
+
+  def __lt__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month < other.month
+    elif other.is_year_only:
+      return self.year < other.year
+
+    return self._day_repr < other._day_repr
+
+  def __le__(self, other):
+    if not isinstance(other, DateTime): return False
+
+    if other.is_month_only:
+      return self.month <= other.month
+    elif other.is_year_only:
+      return self.year <= other.year
+
+    return self._day_repr <= other._day_repr
+
+  @staticmethod
+  def from_string(date_string):
+    # read in values by parsing the input string
+    # YYYY-MM-DD
+    data = date_string.split('-')
+    year = -1 if data[0] in ('xxxx', 'xx') else int(data[0])
+    month = -1 if data[1] == 'xx' else int(data[1])
+    day = -1 if data[2] == 'xx' else int(data[2])
+
+    return DateTime(year, month, day)
+
+  @property
+  def ymd(self):
+    return (self.year, self.month, self.day)
+
+  def __str__(self):
+    return 'Date(%d,%d,%d)' % (self.year, self.month, self.day)
+
+  __repr__ = __str__
+
+
 class SimpleKGExecutor(Executor):
   """This executor assumes that the knowledge graph is
   encoded as a dictionary.
@@ -74,18 +181,38 @@ class SimpleKGExecutor(Executor):
   def filter_equal(self, ents_1, ents_2, prop):
     """From ents_1, filter out the entities whose property equal to ents_2."""
     result = []
+
+    cast_func = self.get_cast_func(prop)
+    query_ents = set(map(cast_func, ents_2))
+
     for ent in ents_1:
-      if set(self.hop([ent], prop)) == set(ents_2):
+      if set(map(cast_func, self.hop([ent], prop))) == set(query_ents):
         result.append(ent)
+
     return result
 
   def filter_not_equal(self, ents_1, ents_2, prop):
     """From ents_1, filter out the entities whose property equal to ents_2."""
     result = []
+
+    cast_func = self.get_cast_func(prop)
+    query_ents = set(map(cast_func, ents_2))
+
     for ent in ents_1:
-      if set(self.hop([ent], prop)) != set(ents_2):
+      if set(map(cast_func, self.hop([ent], prop))) != query_ents:
         result.append(ent)
+
     return result
+
+  def get_cast_func(self, prop):
+    if prop in self.datetime_props:
+      return DateTime.from_string
+    elif prop in self.num_props:
+      return float
+    else:
+      return lambda x: x
+
+    # raise RuntimeError('Not a valid ordering property [{}]'.format(prop))
     
   def get_num_prop_val(self, ent, prop):
     """Get the value of an entities' number property. """
@@ -158,7 +285,14 @@ class SimpleKGExecutor(Executor):
     return valid_tks
 
   def is_connected(self, source_ents, target_ents, prop):
-    return set(self.hop(source_ents, prop)) == set(target_ents)
+    cast_func = self.get_cast_func(prop)
+
+    try:
+     result = set(map(cast_func, self.hop(source_ents, prop))) == set(map(cast_func, target_ents))
+    except ValueError:
+      return False
+
+    return result
 
   def get_props(
       self, source_ents, target_ents=None, debug=False, condition_fn=None):
@@ -195,8 +329,9 @@ class SimpleKGExecutor(Executor):
     
   def autocomplete_hop(self, exp, tokens, token_vals):
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 2:  # second argument is a property.
-      source_mids = exp[1]
+      source_mids = exp[1]['value']
       token_val_dict = dict(zip(tokens, token_vals))      
       valid_tks = self.valid_props(source_mids, token_val_dict)
     else:
@@ -205,11 +340,12 @@ class SimpleKGExecutor(Executor):
 
   def autocomplete_argm(self, exp, tokens, token_vals, debug=False):
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1: # first argument has more than one entity.
       valid_tks = [tk for tk, val in zip(tokens, token_vals)
                    if len(val) > 1]
     elif l == 2:  # second argument is a property.
-      source_mids = exp[1]
+      source_mids = exp[1]['value']
       token_val_dict = dict(zip(tokens, token_vals))
       valid_tks = self.valid_props(source_mids, token_val_dict)
     else:
@@ -224,6 +360,7 @@ class SimpleKGExecutor(Executor):
 
   def autocomplete_filter_equal(self, exp, tokens, token_vals, debug=False):
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       valid_tks = [tk for tk, val in zip(tokens, token_vals)
                    if len(val) > 1]
@@ -232,11 +369,11 @@ class SimpleKGExecutor(Executor):
       for tk, val in zip(tokens, token_vals):
         # The second argument must have some connection with
         # the first argument.
-        if self.get_props(exp[1], val):
+        if self.get_props(exp[1]['value'], val):
           valid_tks.append(tk)
     elif l == 3:
       token_val_dict = dict(zip(tokens, token_vals))
-      valid_tks = self.valid_props(exp[1], token_val_dict, exp[2])
+      valid_tks = self.valid_props(exp[1]['value'], token_val_dict, exp[2]['value'])
     else:
       raise ValueError('Expression is too long: {}'.format(l))
 
@@ -314,10 +451,13 @@ class TableExecutor(SimpleKGExecutor):
   def filter_ge(self, ents_1, nums, prop):
     """Filter out entities whose prop >= nums."""
     result = []
+    cast_func = self.get_cast_func(prop)
+
+    casted_query_ents = [cast_func(x) for x in nums]
     for ent in ents_1:
-      vals = set(self.hop([ent], prop))
+      vals = set(map(cast_func, self.hop([ent], prop)))
       for val in vals:
-        if all([(val >= x) for x in nums]):
+        if all([(val >= x) for x in casted_query_ents]):
           result.append(ent)
           break
     return result
@@ -325,10 +465,13 @@ class TableExecutor(SimpleKGExecutor):
   def filter_greater(self, ents_1, nums, prop):
     """Filter out entities whose prop > nums."""
     result = []
+    cast_func = self.get_cast_func(prop)
+
+    casted_query_ents = [cast_func(x) for x in nums]
     for ent in ents_1:
-      vals = set(self.hop([ent], prop))
+      vals = set(map(cast_func, self.hop([ent], prop)))
       for val in vals:
-        if all([(val > x) for x in nums]):
+        if all([(val > x) for x in casted_query_ents]):
           result.append(ent)
           break
     return result
@@ -336,24 +479,53 @@ class TableExecutor(SimpleKGExecutor):
   def filter_le(self, ents_1, nums, prop):
     """Filter out entities whose prop <= nums."""
     result = []
+    cast_func = self.get_cast_func(prop)
+
+    casted_query_ents = [cast_func(x) for x in nums]
     for ent in ents_1:
-      vals = set(self.hop([ent], prop))
+      vals = set(map(cast_func, self.hop([ent], prop)))
       for val in vals:
-        if all([(val <= x) for x in nums]):
+        if all([(val <= x) for x in casted_query_ents]):
           result.append(ent)
           break
+
     return result
 
   def filter_less(self, ents_1, nums, prop):
     """Filter out entities whose prop < nums."""
     result = []
+    cast_func = self.get_cast_func(prop)
+
+    casted_query_ents = [cast_func(x) for x in nums]
     for ent in ents_1:
-      vals = set(self.hop([ent], prop))
+      vals = set(map(cast_func, self.hop([ent], prop)))
       for val in vals:
-        if all([(val < x) for x in nums]):
+        if all([(val < x) for x in casted_query_ents]):
           result.append(ent)
           break
+
     return result
+
+  def autocomplete_filter_ops(self, exp, tokens, token_vals, debug=False):
+    exp_len = len(exp)
+    if exp_len == 1:
+      # only retain entries with size larger than one
+      valid_tks = [tk for tk, val in zip(tokens, token_vals)
+                   if len(val['value']) > 1]
+    elif exp_len == 2:
+      valid_tks = tokens  # ordered_list
+    elif exp_len == 3:
+      query_entity = exp[-1]
+      query_type = query_entity['type']
+      if query_type.startswith('datetime'):
+        valid_tks = []
+        for token, token_value in zip(tokens, token_vals):
+          if token_value['type'].startswith('datetime'):
+            valid_tks.append(token)
+      else:
+        valid_tks = tokens
+
+    return valid_tks
 
   def filter_str_contain_any(self, ents, string_list, prop):
     """Filter out entities whose prop contains any of the strings."""
@@ -390,6 +562,7 @@ class TableExecutor(SimpleKGExecutor):
       self, exp, tokens, token_vals, debug=False):
     """Auto-complete for filter_str_contain_any function."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       valid_tks = [tk for tk, val in zip(tokens, token_vals)
                    if len(val) > 1]
@@ -402,8 +575,8 @@ class TableExecutor(SimpleKGExecutor):
     elif l == 3:
       valid_tks = []
       token_val_dict = dict(zip(tokens, token_vals))
-      source_ents = exp[1]
-      string_list = exp[2]
+      source_ents = exp[1]['value']
+      string_list = exp[2]['value']
       for tk in tokens:
         is_valid = False
         prop = token_val_dict[tk]
@@ -463,6 +636,7 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_next(self, exp, tokens, token_vals):
     """Autocompletion for next function."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       # If there are any non-empty result, then it is available.
       valid_tks = []
@@ -476,6 +650,7 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_previous(self, exp, tokens, token_vals):
     """Autocompletion for previous function."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       # If there are any non-empty result, then it is available.
       valid_tks = []
@@ -510,6 +685,7 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_first_last(self, exp, tokens, token_vals):
     """Autocompletion for both first and last."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       # Only use first or last when you have more than one
       # entity.
@@ -565,6 +741,7 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_aggregation(self, exp, tokens, token_vals):
     """Autocomplete for aggregation functions."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       # Only use aggregation when you have more than one
       # entity, otherwise just use hop.
@@ -572,7 +749,7 @@ class TableExecutor(SimpleKGExecutor):
     else:
       # For the second argument, all the props with the
       # right type (ordered_property) can be used.
-      props = set(self.get_props(exp[1]))
+      props = set(self.get_props(exp[1]['value']))
       valid_tks = []
       for tk, val in zip(tokens, token_vals):
         if val in props:
@@ -593,12 +770,13 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_same(self, exp, tokens, token_vals, namespace):
     """Autocomplete for same function."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       valid_tks = [
         tk for tk, val in zip(tokens, token_vals)
         if len(val) == 1]
     elif l == 2:
-      props = set(self.get_props(exp[1]))
+      props = set(self.get_props(exp[1]['value']))
       valid_tks = []
       for tk, val in zip(tokens, token_vals):
         if val in props:
@@ -618,6 +796,7 @@ class TableExecutor(SimpleKGExecutor):
   def autocomplete_diff(self, exp, tokens, token_vals):
     """Autocomplete for diff function."""
     l = len(exp)
+    token_vals = [x['value'] for x in token_vals]
     if l == 1:
       valid_tks = [
         tk for tk, val in zip(tokens, token_vals)
@@ -629,10 +808,10 @@ class TableExecutor(SimpleKGExecutor):
     elif l == 2:
       valid_tks = [
         tk for tk, val in zip(tokens, token_vals)
-        if (len(val) == 1 and val != exp[1])]
+        if (len(val) == 1 and val != exp[1]['value'])]
     else:
-      props = set(self.get_props(exp[1]))
-      props = props.intersection(self.get_props(exp[2]))
+      props = set(self.get_props(exp[1]['value']))
+      props = props.intersection(self.get_props(exp[2]['value']))
       valid_tks = []
       for tk, val in zip(tokens, token_vals):
         if val in props:
@@ -792,7 +971,8 @@ class TableExecutor(SimpleKGExecutor):
             {'types': ['ordered_list']},
             {'types': ['ordered_property']}],
       return_type='entity_list',
-      autocomplete=self.return_all_tokens,
+      # autocomplete=self.return_all_tokens,
+      autocomplete=self.autocomplete_filter_ops,
       type='primitive_function',
       value=self.filter_greater)    
     

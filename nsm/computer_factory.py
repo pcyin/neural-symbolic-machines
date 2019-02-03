@@ -1,5 +1,6 @@
 """Computers can read in tokens, parse them into a program, and execute it."""
 
+from __future__ import print_function
 from collections import OrderedDict
 import re
 import copy
@@ -82,14 +83,17 @@ class LispInterpreter(object):
         return_type=return_type, args=args)
 
   def autocomplete(self, exp, tokens, token_vals, namespace):
-    func = exp[0]
-    exp = [x['value'] for x in exp]
-    token_vals = [x['value'] for x in token_vals]
-    if func['type'] == 'global_primitive_function':
-      return func['autocomplete'](
-        exp, tokens, token_vals, namespace=namespace)
-    else:
-      return func['autocomplete'](exp, tokens, token_vals)
+    # func = exp[0]
+    # exp = [x['value'] for x in exp]
+    # token_vals = [x['value'] for x in token_vals]
+    # if func['type'] == 'global_primitive_function':
+    #   return func['autocomplete'](
+    #     exp, tokens, token_vals, namespace=namespace)
+    # else:
+    #   return func['autocomplete'](exp, tokens, token_vals)
+    function = exp[0]
+
+    return function['autocomplete'](exp, tokens, token_vals)
       
   def reset(self, only_reset_variables=False):
     """Reset all the interpreter state."""
@@ -217,12 +221,12 @@ class LispInterpreter(object):
     try:
       result = self._eval(x, namespace)
     except Exception as e:
-      print 'Error: ', e
+      print('Error: ', e)
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
       print(exc_type, fname, exc_tb.tb_lineno)
-      print 'when evaluating ', x
-      print self.history
+      print('when evaluating ', x)
+      print(self.history)
       pprint.pprint(self.namespace)
       raise e
       result = None
@@ -271,20 +275,30 @@ class LispInterpreter(object):
 
   def interactive(self, prompt='> ', assisted=False):
     """A prompt-read-eval-print loop."""
+    print('Namespace:')
+    for key, val in self.namespace.items():
+      if val['type'] == 'primitive_function':
+        print('Function: {}'.format(key))
+      else:
+        print('Entity: {}, Value: {}'.format(key, val))
+
     temp = self.assisted
-    try:
-      self.assisted = assisted
-      while True:
-        try:
-          tokens = self.tokenize(raw_input(prompt))
-          for tk in tokens:
-            result = self.read_token(tk)
-          print result['value']
-        except Exception as e:
-          print e
-          continue
-    finally:
-      self.assisted = temp
+    # try:
+    self.assisted = assisted
+    while True:
+      # try:
+        query = raw_input(prompt).strip()
+        tokens = self.tokenize(query)
+        for tk in tokens:
+          result = self.read_token(tk)
+          print('Read in [{}], valid tokens: {}'.format(tk, self.valid_tokens()))
+          if result:
+            print(result['value'])
+        # except Exception as e:
+        #   print(e)
+        #   continue
+    # finally:
+    #   self.assisted = temp
 
   def has_extra_work(self):
     """Check if the current solution contains some extra/wasted work."""
