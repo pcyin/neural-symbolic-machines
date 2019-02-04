@@ -771,7 +771,7 @@ class TableExecutor(SimpleKGExecutor):
     same_ents.remove(ents[0])
     return same_ents
 
-  def autocomplete_same(self, exp, tokens, token_vals, namespace):
+  def autocomplete_same(self, exp, tokens, token_vals):
     """Autocomplete for same function."""
     l = len(exp)
     token_vals = [x['value'] for x in token_vals]
