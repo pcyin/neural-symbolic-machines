@@ -288,8 +288,8 @@ class SimpleKGExecutor(Executor):
     cast_func = self.get_cast_func(prop)
 
     try:
-     result = set(map(cast_func, self.hop(source_ents, prop))) == set(map(cast_func, target_ents))
-    except ValueError:
+      result = set(map(cast_func, self.hop(source_ents, prop))) == set(map(cast_func, target_ents))
+    except:
       return False
 
     return result
@@ -361,17 +361,17 @@ class SimpleKGExecutor(Executor):
   def autocomplete_filter_equal(self, exp, tokens, token_vals, debug=False):
     l = len(exp)
     token_vals = [x['value'] for x in token_vals]
-    if l == 1:
+    if l == 1:  # [entity_list]
       valid_tks = [tk for tk, val in zip(tokens, token_vals)
                    if len(val) > 1]
-    elif l == 2:
+    elif l == 2:  # query entity
       valid_tks = []
       for tk, val in zip(tokens, token_vals):
         # The second argument must have some connection with
         # the first argument.
         if self.get_props(exp[1]['value'], val):
           valid_tks.append(tk)
-    elif l == 3:
+    elif l == 3:  # query property
       token_val_dict = dict(zip(tokens, token_vals))
       valid_tks = self.valid_props(exp[1]['value'], token_val_dict, exp[2]['value'])
     else:
@@ -508,22 +508,26 @@ class TableExecutor(SimpleKGExecutor):
 
   def autocomplete_filter_ops(self, exp, tokens, token_vals, debug=False):
     exp_len = len(exp)
-    if exp_len == 1:
+    if exp_len == 1: # entity list
       # only retain entries with size larger than one
       valid_tks = [tk for tk, val in zip(tokens, token_vals)
                    if len(val['value']) > 1]
-    elif exp_len == 2:
+    elif exp_len == 2: # query list
       valid_tks = tokens  # ordered_list
     elif exp_len == 3:
-      query_entity = exp[-1]
+      query_entity = exp[-1] # query property
       query_type = query_entity['type']
+      valid_tks = []
       if query_type.startswith('datetime'):
-        valid_tks = []
         for token, token_value in zip(tokens, token_vals):
           if token_value['type'].startswith('datetime'):
             valid_tks.append(token)
+      elif query_type.startswith('num'):
+        for token, token_value in zip(tokens, token_vals):
+          if token_value['type'].startswith('num'):
+            valid_tks.append(token)
       else:
-        valid_tks = tokens
+        raise RuntimeError('Unknown query entity type: %s' % query_type)
 
     return valid_tks
 
@@ -836,7 +840,9 @@ class TableExecutor(SimpleKGExecutor):
         return 'entity_list'
       else:
         raise ValueError('Unknown type {}'.format(arg2_type))
-    
+
+    min_max_return_type_fn = hop_return_type_fn
+
     func_dict['hop'] = dict(
       name='hop',
       args=[{'types': ['entity_list']},
@@ -961,7 +967,7 @@ class TableExecutor(SimpleKGExecutor):
             {'types': ['ordered_list']},
             {'types': ['ordered_property']}],
       return_type='entity_list',
-      autocomplete=self.return_all_tokens,
+      autocomplete=self.autocomplete_filter_ops,
       type='primitive_function',
       value=self.filter_ge)
 
@@ -982,7 +988,7 @@ class TableExecutor(SimpleKGExecutor):
             {'types': ['ordered_list']},
             {'types': ['ordered_property']}],
       return_type='entity_list',
-      autocomplete=self.return_all_tokens,
+      autocomplete=self.autocomplete_filter_ops,
       type='primitive_function',
       value=self.filter_le)
 
@@ -992,7 +998,7 @@ class TableExecutor(SimpleKGExecutor):
             {'types': ['ordered_list']},
             {'types': ['ordered_property']}],
       return_type='entity_list',
-      autocomplete=self.return_all_tokens,
+      autocomplete=self.autocomplete_filter_ops,
       type='primitive_function',
       value=self.filter_less)
 
@@ -1003,7 +1009,8 @@ class TableExecutor(SimpleKGExecutor):
         name=k,
         args=[{'types': ['entity_list']},
               {'types': ['ordered_property']}],
-        return_type='ordered_list',
+        # return_type='ordered_list',
+        return_type=min_max_return_type_fn,
         autocomplete=self.autocomplete_aggregation,
         type='primitive_function',
         value=f)
