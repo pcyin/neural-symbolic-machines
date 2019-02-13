@@ -136,13 +136,13 @@ if __name__ == '__main__':
     # env_dict = {env.name: env for env in envs}
     # env_dict['nt-3035'].interpreter.interactive(assisted=True)
 
-    examples = load_jsonl("/Users/yinpengcheng/Research/SemanticParsing/nsm/data/wikitable_reproduce/processed_input/train_examples.jsonl")
-    tables = load_jsonl("/Users/yinpengcheng/Research/SemanticParsing/nsm/data/wikitable_reproduce/processed_input/tables.jsonl")
+    examples = load_jsonl("/Users/yinpengcheng/Research/SemanticParsing/nsm/data/wikitable/processed_input/preprocess_14/train_examples.jsonl")
+    tables = load_jsonl("/Users/yinpengcheng/Research/SemanticParsing/nsm/data/wikitable/processed_input/preprocess_14/tables.jsonl")
 
     examples_dict = {e['id']: e for e in examples}
     tables_dict = {tab['name']: tab for tab in tables}
 
     # q_id = 'nt-10300'
-    q_id = 'nt-278'
+    q_id = 'nt-13522'
     interpreter = init_interpreter_for_example(examples_dict[q_id], tables_dict[examples_dict[q_id]['context']])
     interpreter.interactive(assisted=True)

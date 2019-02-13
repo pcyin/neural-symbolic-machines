@@ -235,6 +235,7 @@ def collect_programs():
 
 def main(unused_argv):
   ps = []
+  # run_random_exploration(0)
   for idx in xrange(FLAGS.id_start, FLAGS.id_end):
     p = multiprocessing.Process(target=run_random_exploration, args=(idx,))
     p.start()

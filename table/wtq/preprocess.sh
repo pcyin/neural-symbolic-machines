@@ -1,7 +1,10 @@
-ROOT=$HOME"/projects/"
-DATA_DIR=$ROOT"data/wikitable/"
+#!/usr/bin/env bash
+
+ROOT=$HOME"/Research/SemanticParsing/nsm/"
+DATA_DIR=$ROOT"data/wikitable_reproduce/"
+ORIGINAL_DATA_DIR=$ROOT"data/wikitable/"
 python preprocess.py \
-       --raw_input_dir=$DATA_DIR"raw_input" \
+       --raw_input_dir=$ORIGINAL_DATA_DIR"raw_input" \
        --processed_input_dir=$DATA_DIR"processed_input/wtq_preprocess" \
        --max_n_tokens_for_num_prop=10 \
        --min_frac_for_ordered_prop=0.2 \

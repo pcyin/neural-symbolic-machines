@@ -1,6 +1,6 @@
 NAME=$1
 CONFIG=$2
-DATA_DIR=$HOME"/projects/data/wikitable/"
+DATA_DIR=$HOME"/Research/SemanticParsing/nsm/data/wikitable/"
 INPUT_DIR=$DATA_DIR"processed_input/preprocess_14/"
 SPLIT_DIR=$INPUT_DIR"data_split_1/"
 case $CONFIG in
@@ -12,6 +12,10 @@ case $CONFIG in
         echo "Evaluate on test set!"
         $EVAL_FILE=$INPUT_DIR"test_split.jsonl"
         ;;
+    train)
+        echo "Evaluate on train set!"
+        EVAL_FILE=$INPUT_DIR"train_examples.jsonl"
+        ;;
     *)
         echo "Usage: $0 experiment_name (dev|test)"
         exit 1
@@ -21,5 +25,5 @@ python ../experiment.py \
        --eval_only \
        --output_dir=$DATA_DIR"output" \
        --experiment_to_eval=$NAME \
-       --experiment_name="eval_"$NAME \
+       --experiment_name="eval_train_"$NAME \
        --eval_file=$EVAL_FILE

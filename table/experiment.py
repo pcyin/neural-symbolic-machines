@@ -879,6 +879,8 @@ class Actor(multiprocessing.Process):
           policy_samples = agent.generate_samples(
             batch_envs, n_samples=FLAGS.n_policy_samples,
             greedy=False)
+          # policy_samples = [sample for sample in explore_samples if sample.traj.rewards[-1] == 1.]
+
         t4 = time.time()
         tf.logging.info('{} sec used generating {} on-policy samples'.format(
           t4-t3, len(policy_samples)))
