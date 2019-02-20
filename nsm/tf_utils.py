@@ -188,15 +188,20 @@ class SeqAttentionCellWrapper(tf.nn.rnn_cell.RNNCell):
 
   def _attention(self, query, attn_inputs):
     with vs.variable_scope("attention"):
-      attn_query = tf.layers.dense(
-        inputs=query, units=self._attn_vec_size, use_bias=True)
-      attn_keys = tf.layers.dense(
-        inputs=attn_inputs, units=self._attn_vec_size, use_bias=True)
-      attn_contents = tf.layers.dense(
-        inputs=attn_inputs, units=self._attn_size, use_bias=True)
-      
-      v_attn = vs.get_variable("attn_v", [self._attn_vec_size])
-      scores = attn_sum_bahdanau(v_attn, attn_keys, attn_query)
+      # attn_query = tf.layers.dense(
+      #   inputs=query, units=self._attn_vec_size, use_bias=True)
+      # attn_keys = tf.layers.dense(
+      #   inputs=attn_inputs, units=self._attn_vec_size, use_bias=True)
+      # attn_contents = tf.layers.dense(
+      #   inputs=attn_inputs, units=self._attn_size, use_bias=True)
+
+      attn_query = query
+      attn_keys = tf.layers.dense(inputs=attn_inputs, units=self._attn_vec_size, use_bias=True)
+      attn_contents = attn_inputs
+
+      # v_attn = vs.get_variable("attn_v", [self._attn_vec_size])
+      # scores = attn_sum_bahdanau(v_attn, attn_keys, attn_query)
+      scores = dot_product_attention(attn_keys, attn_query)
       
       if self.attn_masks is not None:
         score_masks = self.attn_masks
@@ -211,6 +216,13 @@ class SeqAttentionCellWrapper(tf.nn.rnn_cell.RNNCell):
 def attn_sum_bahdanau(v_attn, keys, query):
   """Calculates a batch and timewise dot product with a variable"""
   return tf.reduce_sum(v_attn * tf.tanh(keys + tf.expand_dims(query, 1)), [2])
+
+
+def dot_product_attention(keys, query):
+  scores = tf.matmul(keys, tf.expand_dims(query, axis=-1))
+  scores = tf.squeeze(scores, axis=-1)
+
+  return scores
 
 
 def attn_sum_dot(keys, query):

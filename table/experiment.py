@@ -711,7 +711,7 @@ def run_experiment():
   evaluator = Evaluator(
     'Evaluator',
     [FLAGS.eval_file if FLAGS.eval_only else FLAGS.dev_file])
-  evaluator.start()
+  # evaluator.start()
 
   if not FLAGS.eval_only:
     actors = []
@@ -1233,6 +1233,9 @@ class Learner(multiprocessing.Process):
       tf.logging.info('Start train step {}'.format(i))
       t1 = time.time()
       train_samples, behaviour_logprobs, clip_frac  = self.train_queue.get()
+
+      train_writer.add_summary(self.train_queue.qsize())
+
       eval_samples, eval_true_n = self.eval_queue.get()
       replay_samples, replay_true_n = self.replay_queue.get()
       t2 = time.time()

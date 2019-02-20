@@ -1231,12 +1231,12 @@ def create_seq_graph(input_shape, batch_size=None,
   # Create RNN cell
   cell = multilayer_dropout_cell(
     RNN_CELL_DICT[cell_type],
-    hidden_size, n_layers, rnn_dropout)
+    hidden_size, n_layers, rnn_dropout, use_skip_connection=False)
 
   if bidirectional:
     cell_bw = multilayer_dropout_cell(
       RNN_CELL_DICT[cell_type],
-      hidden_size, n_layers, rnn_dropout)
+      hidden_size, n_layers, rnn_dropout, use_skip_connection=False)
   else:
     cell_bw = None
 

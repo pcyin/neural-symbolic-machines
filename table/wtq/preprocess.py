@@ -280,7 +280,7 @@ def date_in_table(ent, kg):
     props_set = set(kg['datetime_props'])
     for k, node in kg['kg'].iteritems():
         for prop, val in node.iteritems():
-            if prop in props_set and ent == val:
+            if prop in props_set and ent in val:
                 return True
     else:
         return False
@@ -290,7 +290,7 @@ def num_in_table(ent, kg):
     props_set = set(kg['num_props'])
     for k, node in kg['kg'].iteritems():
         for prop, val in node.iteritems():
-            if prop in props_set and ent == val:
+            if prop in props_set and ent in val:
                 return True
     else:
         return False        
@@ -357,6 +357,7 @@ def collect_examples_from_df(df, kg_dict, stop_words):
                                               token_start=i,
                                               token_end=i+1,
                                               type='string_list'))
+                    e['in_table'][i] = 1
 
         i = 0
         while i < token_num:
@@ -380,8 +381,8 @@ def collect_examples_from_df(df, kg_dict, stop_words):
                                               token_end=end_pos,
                                               type='datetime_list'))
 
-                    if date_in_table(ner_value, kg):
-                        e['in_table'][i:end_pos] = 1
+                    if date_in_table(date_value, kg):
+                        e['in_table'][i:end_pos] = [1] * (end_pos - i)
                         e['processed_tokens'][i:end_pos] = '<{}>'.format(ner_tag)
 
                     i = end_pos
@@ -403,7 +404,7 @@ def collect_examples_from_df(df, kg_dict, stop_words):
                                               type='num_list'))
 
                     if num_in_table(num_value, kg):
-                        e['in_table'][i:end_pos] = 1
+                        e['in_table'][i:end_pos] = [1] * (end_pos - i)
                         e['processed_tokens'][i:end_pos] = '<{}>'.format(ner_tag)
 
                     i = end_pos
